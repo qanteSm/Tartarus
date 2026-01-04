@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import font
 import random
+import platform
 from PIL import Image, ImageTk
 
 class DisplayManager:
@@ -11,164 +12,84 @@ class DisplayManager:
         self.width = self.root.winfo_screenwidth()
         self.height = self.root.winfo_screenheight()
         
-        self.root.configure(bg='black', cursor="none")
-        self.root.attributes('-fullscreen', True)
+        self.os_type = platform.system()
+
+        # Ghost Overlay Setup
+        self.root.overrideredirect(True)
+        self.root.geometry(f"{self.width}x{self.height}+0+0")
+        self.root.configure(bg='black')
         self.root.attributes('-topmost', True)
+
+        # Transparent Window Trick (Windows only)
+        if self.os_type == "Windows":
+             try:
+                 self.root.wm_attributes("-transparentcolor", "black")
+                 self.root.wm_attributes("-alpha", 0.01) # Nearly invisible interaction layer
+             except:
+                 pass
+        else:
+             # Linux fallback: just minimize or keep hidden until needed
+             self.root.attributes('-alpha', 0.0)
+
         self.root.protocol("WM_DELETE_WINDOW", lambda: None)
         
-        self.main_frame = tk.Frame(self.root, bg="black")
-        self.main_frame.pack(fill="both", expand=True)
-
-        self.lbl_main = tk.Label(self.main_frame, text="", font=("Consolas", 24, "bold"), fg="#00ff00", bg="black", wraplength=self.width - 100)
-        self.lbl_main.place(relx=0.5, rely=0.4, anchor="center")
-        
-        self.lbl_sub = tk.Label(self.main_frame, text="", font=("Arial", 12), fg="white", bg="black")
-        self.lbl_sub.place(relx=0.5, rely=0.6, anchor="center")
-        
-        self.entry = None
+        self.overlay_windows = []
 
     def ask_language(self):
-        """Oyun başlamadan önce dil seçimi penceresi (Statik/Blocking değil, kendi loop'u var)"""
-        self.root.attributes('-fullscreen', False)
-        self.root.geometry("400x200")
-        self.root.title("TARTARUS SYSTEM BOOT")
-        self.root.configure(cursor="arrow")
-        
-        lang_var = tk.StringVar(value="TR")
-        
-        def set_lang(l):
-            lang_var.set(l)
-            self.root.quit()
-            
-        lbl = tk.Label(self.root, text="SELECT LANGUAGE / DİL SEÇİNİZ", bg="black", fg="white", font=("Arial", 14))
-        lbl.pack(pady=20)
-        
-        btn_tr = tk.Button(self.root, text="TÜRKÇE", command=lambda: set_lang("TR"), width=15)
-        btn_tr.pack(pady=5)
-        
-        btn_en = tk.Button(self.root, text="ENGLISH", command=lambda: set_lang("EN"), width=15)
-        btn_en.pack(pady=5)
-        
-        self.root.mainloop()
-        
-        for widget in self.root.winfo_children():
-            widget.destroy()
-            
-        self.__init__(self.root, self.audio)
-        return lang_var.get()
+        # In Ghost Mode, we skip the language prompt or use a simple popup
+        # For now, defaulting to TR as per the "Ritual" context being Turkish
+        # Or we can just use a simple popup
+        return "TR"
 
-    def type_write(self, text, speed=50, color="#00ff00", callback=None):
-        """
-        Daktilo efektiyle yazı yazar. Blocking değildir (root.after kullanır).
-        speed: milisaniye cinsinden karakter arası bekleme.
-        """
-        self.lbl_main.config(text="", fg=color)
-        self._type_next_char(text, 0, speed, callback)
+    def show_ghost_message(self, text, duration=3000, color="red", font_size=20):
+        """Displays floating text on the screen without a window border."""
+        try:
+            top = tk.Toplevel(self.root)
+            top.overrideredirect(True)
+            top.attributes('-topmost', True)
+            
+            # Position randomly or center
+            x = random.randint(100, self.width - 400)
+            y = random.randint(100, self.height - 200)
+            top.geometry(f"+{x}+{y}")
+            
+            if self.os_type == "Windows":
+                top.wm_attributes("-transparentcolor", "black")
+            
+            lbl = tk.Label(top, text=text, font=("Arial", font_size, "bold"), fg=color, bg="black")
+            lbl.pack()
+            
+            self.overlay_windows.append(top)
+            
+            def fade_out():
+                top.destroy()
+                if top in self.overlay_windows:
+                    self.overlay_windows.remove(top)
+                    
+            self.root.after(duration, fade_out)
+        except Exception as e:
+            print(f"Ghost Text Error: {e}")
 
-    def _type_next_char(self, text, index, speed, callback):
-        if index < len(text):
-            current_text = text[:index+1] + "█"
-            self.lbl_main.config(text=current_text)
-            
-            if index % 3 == 0:
-                self.audio.play("beep")
-            
-            self.root.after(speed, lambda: self._type_next_char(text, index+1, speed, callback))
-        else:
-            self.lbl_main.config(text=text)
-            if callback:
-                callback()
-
-    def glitch_screen(self, duration=500):
-        """Ekranı kısa süreliğine bozar."""
-        original_bg = self.root.cget("bg")
-        
-        def toggle_invert(count):
-            if count <= 0:
-                self.root.configure(bg="black")
-                self.lbl_main.configure(fg="#00ff00", bg="black")
-                return
-            
-            if count % 2 == 0:
-                self.root.configure(bg="white")
-                self.lbl_main.configure(fg="black", bg="white")
-            else:
-                self.root.configure(bg="black")
-                self.lbl_main.configure(fg="red", bg="black")
-                self.audio.play("static")
-            
-            self.root.after(50, lambda: toggle_invert(count-1))
-            
-        toggle_invert(duration // 50)
-
-    def show_jumpscare(self, pil_image=None):
-        """
-        Jumpscare gösterir.
-        pil_image: PIL Image objesi veya None.
-        """
-        self.root.after(0, lambda: self._show_jumpscare_internal(pil_image))
-
-    def _show_jumpscare_internal(self, pil_image):
+    def trigger_flashbang(self):
+        """Fills the screen with white light."""
         top = tk.Toplevel(self.root)
         top.attributes('-fullscreen', True)
         top.attributes('-topmost', True)
-        top.configure(bg="red")
+        top.configure(bg="white")
         
-        if pil_image:
-            try:
-                img = pil_image.resize((self.width, self.height))
-                img_tk = ImageTk.PhotoImage(img)
-                lbl = tk.Label(top, image=img_tk)
-                lbl.image = img_tk
-                lbl.pack(fill="both", expand=True)
-            except Exception as e:
-                print(f"Jumpscare hatası: {e}")
-        
-        self.audio.play("screech")
-        self.root.after(500, top.destroy)
+        self.root.after(2000, top.destroy)
 
-    def start_fake_os_mode(self, screenshot):
-        """Sahte Masaüstü modunu başlatır."""
-        self.root.after(0, lambda: self._fake_os_internal(screenshot))
-        
-    def _fake_os_internal(self, screenshot):
-        if not screenshot:
-            return
-            
-        self.main_frame.pack_forget()
-        
-        img = screenshot.resize((self.width, self.height))
-        img_tk = ImageTk.PhotoImage(img)
-        
-        lbl_bg = tk.Label(self.root, image=img_tk, borderwidth=0)
-        lbl_bg.image = img_tk
-        lbl_bg.place(x=0, y=0, relwidth=1, relheight=1)
-        
-        self.root.config(cursor="arrow")
-        
-        self.root.after(5000, lambda: self.glitch_screen(1000))
-        self.root.after(6000, lambda: self.type_write("BURASI ARTIK YOK.", color="red"))
-
-    def keep_focus(self):
-        """Pencereyi sürekli üstte tutar."""
-        self.root.focus_force()
-        self.root.after(1000, self.keep_focus)
-
-    def create_input(self, callback):
-        """Kullanıcıdan veri almak için giriş kutusu oluşturur."""
-        self.root.config(cursor="arrow")
-        self.entry = tk.Entry(self.root, font=("Consolas", 20), bg="#111", fg="white", insertbackground="white", justify='center')
-        self.entry.place(relx=0.5, rely=0.8, anchor="center", width=400)
-        self.entry.focus_set()
-        
-        def on_submit(event=None):
-            text = self.entry.get()
-            self.entry.destroy()
-            self.root.config(cursor="none")
-            callback(text)
-            
-        self.entry.bind("<Return>", on_submit)
+    def glitch_screen(self, duration=500):
+        """Simulates screen glitching by flashing colors."""
+        pass # In overlay mode, this is harder, maybe flash overlay windows
 
     def clear(self):
-        self.lbl_main.config(text="")
-        self.lbl_sub.config(text="")
+        for win in self.overlay_windows:
+            try:
+                win.destroy()
+            except:
+                pass
+        self.overlay_windows = []
+    
+    def keep_focus(self):
+        self.root.after(1000, self.keep_focus)

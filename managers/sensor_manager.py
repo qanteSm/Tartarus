@@ -4,6 +4,7 @@ import time
 import numpy as np
 import speech_recognition as sr
 import pyautogui
+import os
 from PIL import Image
 
 class SensorManager:
@@ -14,16 +15,25 @@ class SensorManager:
         self.noise_level = 0
         self.recognizer = sr.Recognizer()
         self.is_looking_at_screen = False
+        self.avg_brightness = 255
         
         self.face_cascade = None
         try:
-            path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            self.face_cascade = cv2.CascadeClassifier(path)
-        except:
-            print("Yüz tanıma modülü yüklenemedi.")
+            path = os.path.join(cv2.data.haarcascades, 'haarcascade_frontalface_default.xml')
+            if not os.path.exists(path):
+                path = 'haarcascade_frontalface_default.xml'
+            
+            classifier = cv2.CascadeClassifier(path)
+            if classifier.empty():
+                print("Hata: Cascade yüklenemedi (Empty).")
+                self.face_cascade = None
+            else:
+                self.face_cascade = classifier
+        except Exception as e:
+            print(f"Yüz tanıma modülü yüklenemedi: {e}")
+            self.face_cascade = None
 
     def start_monitoring(self):
-        """Kamera ve Mikrofon izlemeyi başlatır."""
         self.camera_active = True
         self.mic_active = True
         
@@ -36,21 +46,35 @@ class SensorManager:
 
     def _camera_loop(self):
         cap = cv2.VideoCapture(0)
+        delay = 0.5 
+        
         while self.camera_active:
-            ret, frame = cap.read()
-            if ret:
-                self.last_frame = frame
-                
-                if self.face_cascade:
+            try:
+                ret, frame = cap.read()
+                if ret:
+                    self.last_frame = frame
+                    
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-                    self.is_looking_at_screen = len(faces) > 0
-
-            time.sleep(0.05)
+                    self.avg_brightness = np.mean(gray)
+                    
+                    if self.face_cascade:
+                        try:
+                            faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+                            self.is_looking_at_screen = len(faces) > 0
+                        except Exception as e:
+                            print(f"Face detect error: {e}")
+                            self.face_cascade = None
+            except Exception as e:
+                pass
+            
+            time.sleep(delay)
+            
         cap.release()
 
+    def get_brightness(self):
+        return self.avg_brightness
+
     def get_user_face(self):
-        """Kullanıcının yüzünün normal bir görüntüsünü alır (Doppelgänger için)."""
         if self.last_frame is None:
             return None
         
@@ -58,11 +82,9 @@ class SensorManager:
         return Image.fromarray(rgb)
 
     def check_gaze(self):
-        """Artık işlem yapmıyor, sadece son sonucu anlık döndürüyor."""
         return self.is_looking_at_screen
 
     def get_noise_level_raw(self):
-        """Ham gürültü seviyesini döndürür."""
         return self.noise_level
 
     def _mic_loop(self):
@@ -78,14 +100,12 @@ class SensorManager:
                         time.sleep(0.1)
                     except sr.WaitTimeoutError:
                         self.noise_level = 0
-                        self.noise_level = 0
                     except:
                         pass
         except:
             print("Mikrofon hatası.")
 
     def get_scary_face(self):
-        """Kameradan son görüntüyü alıp 'şeytanileştirir'."""
         if self.last_frame is None:
             return None
         
@@ -103,11 +123,9 @@ class SensorManager:
         return Image.fromarray(final)
 
     def is_noisy(self):
-        """Ortam gürültülü mü?"""
         return self.noise_level > 50
 
     def trigger_mouse_chaos(self):
-        """Mouse'u rastgele oynatır."""
         try:
             x, y = pyautogui.position()
             pyautogui.moveTo(x + np.random.randint(-50, 50), y + np.random.randint(-50, 50))
