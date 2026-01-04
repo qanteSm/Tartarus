@@ -13,6 +13,7 @@ class SensorManager:
         self.last_frame = None
         self.noise_level = 0
         self.recognizer = sr.Recognizer()
+        self.is_looking_at_screen = False  # YENİ: Sonucu burada saklayacağız
         
         # Jumpscare için yüz/göz tespiti (Haar Cascades)
         self.face_cascade = None
@@ -41,6 +42,15 @@ class SensorManager:
             ret, frame = cap.read()
             if ret:
                 self.last_frame = frame
+
+                # --- DÜZELTME BAŞLANGICI ---
+                # Görüntü işlemeyi Thread içinde yapıyoruz, GUI donmuyor.
+                if self.face_cascade:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+                    self.is_looking_at_screen = len(faces) > 0
+                # --- DÜZELTME BİTİŞİ ---
+
             time.sleep(0.05)
         cap.release()
 
@@ -54,13 +64,8 @@ class SensorManager:
         return Image.fromarray(rgb)
 
     def check_gaze(self):
-        """Kullanıcı ekrana bakıyor mu? (Basit yüz tespiti)"""
-        if self.last_frame is None or self.face_cascade is None:
-            return False
-            
-        gray = cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-        return len(faces) > 0
+        """Artık işlem yapmıyor, sadece son sonucu anlık döndürüyor."""
+        return self.is_looking_at_screen
 
     def get_noise_level_raw(self):
         """Ham gürültü seviyesini döndürür."""

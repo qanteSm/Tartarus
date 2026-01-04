@@ -6,3 +6,4 @@ SpeechRecognition
 numpy
 pillow
 pyautogui
+requests

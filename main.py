@@ -5,6 +5,7 @@ import threading
 import random
 import sys
 import os
+import atexit # <--- ÇOK ÖNEMLİ: Bunu en üste ekle
 
 # Yolları ayarla
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +29,9 @@ class GameController:
         self.audio = AudioManager()
         self.display = DisplayManager(self.root, self.audio)
         
+        # GÜVENLİK AĞI: Program çökerse veya kapanırsa temizlik yap
+        atexit.register(self.emergency_cleanup)
+
         # 3. Dil Seçimi
         self.language = self.display.ask_language()
         
@@ -80,7 +84,12 @@ class GameController:
         print("ACİL ÇIKIŞ TETİKLENDİ.")
         self.game_over(survived=True)
 
-    # --- OYUN AKIŞI ---
+    def emergency_cleanup(self):
+        """Program kapanırken otomatik çalışır."""
+        if hasattr(self, 'system'):
+            self.system.cleanup_system()
+
+    # --- OYNANIŞ GÜNCELLEMELERİ ---
 
     def start_sequence(self):
         """Açılış: Masum başlar, sonra bozulur."""
@@ -212,16 +221,37 @@ class GameController:
         self.root.after(3000, lambda: self.game_over(survived=False))
 
     def punish_player(self):
+        """Cezalandırma mekanizması güncellendi: Duvar Kağıdı Değişimi."""
         self.display.glitch_screen(500)
         self.audio.play("screech")
-        # Anlık yüzü al (korkmuş yüz)
-        scary = self.sensor.get_user_face() # Normal alalım, sensor manager işlemeden
-        self.display.show_jumpscare(scary)
+
+        # Korkunç yüzü al ve duvar kağıdı yap
+        scary = self.sensor.get_scary_face()
+        if scary:
+            path = os.path.abspath("cursed_cache.png")
+            scary.save(path)
+
+            self.system.register_temp_file(path) # Temizlik listesine ekle
+            self.system.change_wallpaper(path)   # Duvar kağıdını değiştir
+
+            self.display.show_jumpscare(scary)
 
     def chaos_loop(self):
         """Arka plan olayları."""
         while self.is_running:
-            time.sleep(random.randint(8, 15))
+            time.sleep(random.randint(5, 10))
+
+            # 1. Aktif Pencere Kontrolü (Kaçış Yok)
+            active_win = self.system.get_active_window()
+            if "Tartarus" not in active_win and active_win != "":
+                # Kullanıcı başka pencereye geçti!
+                self.display.type_write("BURAYA BAK." if self.language == "TR" else "LOOK AT ME.", color="red", speed=20)
+                self.display.keep_focus()
+
+            # 2. Mahremiyet İhlali (Privacy Horror)
+            if random.random() < 0.15: # %15 ihtimalle
+                self.trigger_privacy_invasion()
+
             # 3D Fısıltılar
             if random.random() < 0.3:
                 side = random.choice(["whisper_left", "whisper_right"])
@@ -231,15 +261,21 @@ class GameController:
             if random.random() < 0.2:
                 self.sensor.trigger_mouse_chaos()
 
+    def trigger_privacy_invasion(self):
+        """Masaüstü dosyalarını okuyup yorumlar."""
+        files = self.system.get_desktop_items()
+        if files:
+            comment = self.mind.analyze_desktop_files(files)
+            self.display.type_write(comment, color="cyan", speed=50)
+
     def game_over(self, survived):
         self.is_running = False
         self.sensor.stop_monitoring()
         self.audio.stop_all()
-        if survived:
-            self.root.quit()
-        else:
-            self.root.quit()
-            # Gerçek bir kapanış efekti eklenebilir.
+
+        # Normal çıkışta da temizlik yap
+        self.system.cleanup_system()
+        self.root.quit()
 
 if __name__ == "__main__":
     game = GameController()
