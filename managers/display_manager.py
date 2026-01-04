@@ -8,21 +8,17 @@ class DisplayManager:
         self.root = root
         self.audio = audio_manager
         
-        # Ekran Özellikleri
         self.width = self.root.winfo_screenwidth()
         self.height = self.root.winfo_screenheight()
         
-        # Konfigürasyon
         self.root.configure(bg='black', cursor="none")
         self.root.attributes('-fullscreen', True)
         self.root.attributes('-topmost', True)
-        self.root.protocol("WM_DELETE_WINDOW", lambda: None) # Alt+F4 engelle
+        self.root.protocol("WM_DELETE_WINDOW", lambda: None)
         
-        # Ana Konteyner
         self.main_frame = tk.Frame(self.root, bg="black")
         self.main_frame.pack(fill="both", expand=True)
 
-        # Widgetlar
         self.lbl_main = tk.Label(self.main_frame, text="", font=("Consolas", 24, "bold"), fg="#00ff00", bg="black", wraplength=self.width - 100)
         self.lbl_main.place(relx=0.5, rely=0.4, anchor="center")
         
@@ -33,8 +29,6 @@ class DisplayManager:
 
     def ask_language(self):
         """Oyun başlamadan önce dil seçimi penceresi (Statik/Blocking değil, kendi loop'u var)"""
-        # Bu fonksiyon root'tan bağımsız çalışmalı, ama root zaten var.
-        # Bu yüzden root'u geçici olarak küçük pencere yapalım.
         self.root.attributes('-fullscreen', False)
         self.root.geometry("400x200")
         self.root.title("TARTARUS SYSTEM BOOT")
@@ -44,7 +38,7 @@ class DisplayManager:
         
         def set_lang(l):
             lang_var.set(l)
-            self.root.quit() # mainloop'u kır, ama pencereyi kapatma
+            self.root.quit()
             
         lbl = tk.Label(self.root, text="SELECT LANGUAGE / DİL SEÇİNİZ", bg="black", fg="white", font=("Arial", 14))
         lbl.pack(pady=20)
@@ -55,13 +49,12 @@ class DisplayManager:
         btn_en = tk.Button(self.root, text="ENGLISH", command=lambda: set_lang("EN"), width=15)
         btn_en.pack(pady=5)
         
-        self.root.mainloop() # Kullanıcı seçene kadar bekle
+        self.root.mainloop()
         
-        # Seçim yapıldı, tam ekrana geç
         for widget in self.root.winfo_children():
             widget.destroy()
             
-        self.__init__(self.root, self.audio) # Yeniden başlat
+        self.__init__(self.root, self.audio)
         return lang_var.get()
 
     def type_write(self, text, speed=50, color="#00ff00", callback=None):
@@ -74,16 +67,15 @@ class DisplayManager:
 
     def _type_next_char(self, text, index, speed, callback):
         if index < len(text):
-            current_text = text[:index+1] + "█" # İmleç efekti
+            current_text = text[:index+1] + "█"
             self.lbl_main.config(text=current_text)
             
-            # Rastgele ses efekti
             if index % 3 == 0:
                 self.audio.play("beep")
             
             self.root.after(speed, lambda: self._type_next_char(text, index+1, speed, callback))
         else:
-            self.lbl_main.config(text=text) # İmleci kaldır
+            self.lbl_main.config(text=text)
             if callback:
                 callback()
 
@@ -97,13 +89,12 @@ class DisplayManager:
                 self.lbl_main.configure(fg="#00ff00", bg="black")
                 return
             
-            # Renkleri ters çevir
             if count % 2 == 0:
                 self.root.configure(bg="white")
                 self.lbl_main.configure(fg="black", bg="white")
             else:
                 self.root.configure(bg="black")
-                self.lbl_main.configure(fg="red", bg="black") # Kırmızı glitch
+                self.lbl_main.configure(fg="red", bg="black")
                 self.audio.play("static")
             
             self.root.after(50, lambda: toggle_invert(count-1))
@@ -115,7 +106,6 @@ class DisplayManager:
         Jumpscare gösterir.
         pil_image: PIL Image objesi veya None.
         """
-        # Thread-safe hale getir
         self.root.after(0, lambda: self._show_jumpscare_internal(pil_image))
 
     def _show_jumpscare_internal(self, pil_image):
@@ -145,10 +135,8 @@ class DisplayManager:
         if not screenshot:
             return
             
-        # Ekranı temizle
         self.main_frame.pack_forget()
         
-        # Screenshot'ı bas
         img = screenshot.resize((self.width, self.height))
         img_tk = ImageTk.PhotoImage(img)
         
@@ -156,10 +144,8 @@ class DisplayManager:
         lbl_bg.image = img_tk
         lbl_bg.place(x=0, y=0, relwidth=1, relheight=1)
         
-        # Fake crash
         self.root.config(cursor="arrow")
         
-        # 5 saniye sonra "kanama" efekti veya glitch
         self.root.after(5000, lambda: self.glitch_screen(1000))
         self.root.after(6000, lambda: self.type_write("BURASI ARTIK YOK.", color="red"))
 
