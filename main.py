@@ -6,6 +6,7 @@ import random
 import sys
 import os
 import atexit
+import queue
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -18,227 +19,215 @@ from managers.mind_core import MindCore
 class GameController:
     def __init__(self):
         self.root = tk.Tk()
-        
-        self.system = SystemManager(root=self.root)
-        if not self.system.is_admin():
-            messagebox.showwarning("Tartarus", "Admin privileges required for full immersion.\nProceeding with limited features.")
-        
         self.audio = AudioManager()
         self.display = DisplayManager(self.root, self.audio)
-        
-        atexit.register(self.emergency_cleanup)
-
-        self.language = self.display.ask_language()
-        
-        API_KEY = os.getenv("TARTARUS_API_KEY") 
-        self.mind = MindCore(api_key=API_KEY, language=self.language)
+        self.system = SystemManager(root=self.root)
         self.sensor = SensorManager()
-        
-        self.desktop_screenshot = self.system.take_screenshot()
-        self.user_face_image = None
-        self.clipboard_data = self.system.get_clipboard_text()
-        
-        self.stage = 0
-        self.current_riddle = ""
+        self.mind = MindCore(language="TR")
+
+        self.phase = 1 
         self.is_running = True
-        self.username = self.system.get_user_name()
+        self.usb_stage = 0 
+        self.last_usb_list = []
+        self.darkness_compliant = False
+        self.panic_mode = False
         
+        self.message_queue = queue.Queue()
+
+        atexit.register(self.cleanup)
         self.root.bind("<Control-Shift-Q>", lambda e: self.emergency_exit())
-        self.root.bind("<Control-Shift-q>", lambda e: self.emergency_exit())
         
-        self.root.after(1000, self.start_sequence)
-        threading.Thread(target=self.chaos_loop, daemon=True).start()
+        self.sensor.start_monitoring()
+        self.root.after(1000, self.game_loop)
+        self.root.after(100, self.process_message_queue)
+        
+        threading.Thread(target=self.internet_monitoring_loop, daemon=True).start()
+        
+        self.root.bind("<u>", lambda e: self.simulate_usb_event())
+        self.root.bind("<i>", lambda e: self.simulate_internet_toggle())
+        self.debug_internet = True
+        self.internet_status_safe = True
 
     def start(self):
-        self.sensor.start_monitoring()
-        self.audio.play("drone")
-        
-        self.root.after(2000, self._capture_doppelganger)
-        
-        try:
-            import pyautogui
-            pyautogui.FAILSAFE = False
-        except:
-            pass
-            
-        self.display.keep_focus()
-        self.root.mainloop()
-    
-    def _capture_doppelganger(self):
-        """Kullanıcının yüzünü gizlice kaydeder."""
-        face = self.sensor.get_user_face()
-        if face:
-            self.user_face_image = face
+        self.display.root.mainloop()
 
-    def emergency_exit(self):
-        print("ACİL ÇIKIŞ TETİKLENDİ.")
-        self.game_over(survived=True)
-
-    def emergency_cleanup(self):
-        """Program kapanırken otomatik çalışır."""
-        if hasattr(self, 'system'):
-            self.system.cleanup_system()
-
-
-    def start_sequence(self):
-        """Açılış: Masum başlar, sonra bozulur."""
-        intro_text = f"CONNECTION ESTABLISHED: {self.username}" if self.language == "EN" else f"BAĞLANTI KURULDU: {self.username}"
-        self.display.type_write(intro_text, speed=50, callback=self.intro_monologue)
-
-    def intro_monologue(self):
-        self.root.after(1000)
-        line1 = "I am inside your walls." if self.language == "EN" else "Duvarlarının içindeyim."
-        self.display.type_write(line1, color="red", speed=80)
-        
-        fname = "DONT_LOOK_BEHIND_YOU.txt" if self.language == "EN" else "ARKANA_BAKMA.txt"
-        content = "I SEE YOU." if self.language == "EN" else "SENİ GÖRÜYORUM."
-        self.system.create_ghost_file(fname, content)
-        
-        self.audio.play("whisper_left")
-        
-        self.root.after(3000, self.stage_1_riddle)
-
-    def stage_1_riddle(self):
-        self.stage = 1
-        self.display.glitch_screen(200)
-        
-        clip_content = self.clipboard_data if self.clipboard_data and len(self.clipboard_data) < 50 else None
-        self.current_riddle = self.mind.generate_riddle(clipboard_content)
-        
-        self.display.type_write(self.current_riddle, color="white", speed=30)
-        self.root.after(2000, lambda: self.display.create_input(self.handle_riddle_answer))
-
-    def handle_riddle_answer(self, answer):
-        is_correct, reaction = self.mind.check_answer(self.current_riddle, answer)
-        self.display.type_write(reaction, color="yellow" if is_correct else "red")
-        
-        if is_correct:
-            self.root.after(3000, self.stage_2_weeping_angel)
-        else:
-            self.punish_player()
-            self.root.after(2000, self.stage_1_riddle)
-
-    def stage_2_weeping_angel(self):
-        self.stage = 2
-        msg = "DON'T LOOK AWAY." if self.language == "EN" else "SAKIN GÖZLERİNİ KAÇIRMA."
-        self.display.type_write(msg, color="red")
-        
-        self.angel_check_active = True
-        self.angel_timer = 100
-        self.check_angel_loop()
-
-    def check_angel_loop(self):
-        if not self.angel_check_active: return
-        
-        looking = self.sensor.check_gaze()
-        
-        if not looking:
-            self.audio.play("screech")
-            self.display.lbl_main.config(fg="darkred")
-        else:
-            self.display.lbl_main.config(fg="red")
-
-        self.angel_timer -= 1
-        if self.angel_timer <= 0:
-            self.angel_check_active = False
-            self.stage_3_fake_os()
-        else:
-            self.root.after(100, self.check_angel_loop)
-
-    def stage_3_fake_os(self):
-        self.stage = 3
-        if self.desktop_screenshot:
-            self.display.start_fake_os_mode(self.desktop_screenshot)
-            self.root.after(8000, self.stage_4_breath)
-        else:
-            self.stage_4_breath()
-
-    def stage_4_breath(self):
-        self.stage = 4
-        msg = "DON'T BREATHE. I CAN HEAR YOU." if self.language == "EN" else "NEFES ALMA. SENİ DUYABİLİYORUM."
-        self.display.type_write(msg, color="white")
-        
-        self.audio.play("drone") 
-        
-        self.breath_timer = 50
-        self.check_breath_loop()
-
-    def check_breath_loop(self):
-        noise = self.sensor.get_noise_level_raw()
-        if noise > 500: 
-            self.punish_player()
-            self.display.type_write("I HEARD YOU BREATHING.", color="red")
-        
-        self.breath_timer -= 1
-        if self.breath_timer <= 0:
-            self.stage_5_finale()
-        else:
-            self.root.after(100, self.check_breath_loop)
-
-    def stage_5_finale(self):
-        self.stage = 5
-        self.mind.update_persona_to_victim()
-        
-        help_msg = self.mind.model.generate_content("Kullanıcıdan yardım iste.").text
-        self.display.type_write(help_msg, color="cyan", speed=40)
-        
-        self.root.after(4000, self.reveal_doppelganger)
-
-    def reveal_doppelganger(self):
-        if self.user_face_image:
-            self.display.show_jumpscare(self.user_face_image)
-            
-        final_msg = "YOU ARE REPLACED." if self.language == "EN" else "ARTIK SENİN YERİNE BEN GEÇTİM."
-        self.display.type_write(final_msg, color="red")
-        self.root.after(3000, lambda: self.game_over(survived=False))
-
-    def punish_player(self):
-        """Cezalandırma mekanizması güncellendi: Duvar Kağıdı Değişimi."""
-        self.display.glitch_screen(500)
-        self.audio.play("screech")
-        
-        scary = self.sensor.get_scary_face()
-        if scary:
-            path = os.path.abspath("cursed_cache.png")
-            scary.save(path)
-            
-            self.system.register_temp_file(path)
-            self.system.change_wallpaper(path)
-            
-            self.display.show_jumpscare(scary)
-
-    def chaos_loop(self):
-        """Arka plan olayları."""
-        while self.is_running:
-            time.sleep(random.randint(5, 10))
-            
-            active_win = self.system.get_active_window()
-            if "Tartarus" not in active_win and active_win != "":
-                self.display.type_write("BURAYA BAK." if self.language == "TR" else "LOOK AT ME.", color="red", speed=20)
-                self.display.keep_focus()
-
-            if random.random() < 0.15:
-                self.trigger_privacy_invasion()
-                
-            if random.random() < 0.3:
-                side = random.choice(["whisper_left", "whisper_right"])
-                self.audio.play_async(side)
-            
-            if random.random() < 0.2:
-                self.sensor.trigger_mouse_chaos()
-
-    def trigger_privacy_invasion(self):
-        """Masaüstü dosyalarını okuyup yorumlar."""
-        files = self.system.get_desktop_items()
-        if files:
-            comment = self.mind.analyze_desktop_files(files)
-            self.display.type_write(comment, color="cyan", speed=50)
-
-    def game_over(self, survived):
-        self.is_running = False
+    def cleanup(self):
+        self.system.cleanup_system()
         self.sensor.stop_monitoring()
         self.audio.stop_all()
+
+    def emergency_exit(self):
+        self.cleanup()
+        self.root.quit()
+
+    def simulate_usb_event(self):
+        self.handle_usb_logic(simulated=True)
+
+    def simulate_internet_toggle(self):
+        self.debug_internet = not self.debug_internet
+
+    def internet_monitoring_loop(self):
+        while self.is_running:
+            real_status = self.system.check_internet()
+            status = real_status if self.debug_internet else False
+            self.internet_status_safe = status
+            
+            if not status:
+                if not self.panic_mode:
+                    self.message_queue.put(("PANIC_START", None))
+            else:
+                if self.panic_mode:
+                    self.message_queue.put(("PANIC_STOP", None))
+            
+            time.sleep(2)
+
+    def process_message_queue(self):
+        try:
+            while True:
+                msg_type, data = self.message_queue.get_nowait()
+                if msg_type == "PANIC_START":
+                    self.trigger_panic_mode()
+                elif msg_type == "PANIC_STOP":
+                    self.stop_panic_mode()
+                elif msg_type == "SHOW_MSG":
+                    self.display.show_ghost_message(data[0], **data[1])
+                elif msg_type == "PLAY_SOUND":
+                    self.audio.play(data)
+                elif msg_type == "FLASHBANG":
+                    self.display.trigger_flashbang()
+                elif msg_type == "PURGE":
+                    self.phase_4_purge()
+        except queue.Empty:
+            pass
+        self.root.after(100, self.process_message_queue)
+
+    def game_loop(self):
+        if not self.is_running: return
+
+        self.check_darkness()
+        self.check_jealousy() 
+        self.check_usb_real()
+
+        if self.phase == 1:
+            self.phase_1_infiltration()
+        elif self.phase == 2:
+            self.phase_2_manifestation()
+        elif self.phase == 3:
+            self.phase_3_ritual()
         
+        self.root.after(1000, self.game_loop)
+
+    def trigger_panic_mode(self):
+        self.panic_mode = True
+        self.audio.play("static")
+        self.audio.play("screech")
+        
+        def async_gen():
+            msg = self.mind.generate_panic_reaction()
+            self.message_queue.put(("SHOW_MSG", (msg, {"duration": 5000, "color": "red", "font_size": 40})))
+            self.message_queue.put(("FLASHBANG", None))
+            
+        threading.Thread(target=async_gen, daemon=True).start()
+
+    def stop_panic_mode(self):
+        self.panic_mode = False
+        self.audio.stop_all()
+        self.audio.play("drone")
+
+    def check_darkness(self):
+        brightness = self.sensor.get_brightness()
+        self.darkness_compliant = brightness < 50
+
+    def check_jealousy(self):
+        looking = self.sensor.check_gaze()
+        if not looking and random.random() < 0.1: 
+            self.audio.play("whisper_left")
+            self.display.show_ghost_message("BURAYA BAK.", duration=1000, color="gray", font_size=12)
+
+    def check_usb_real(self):
+        current_drives = self.system.check_usb_drives()
+        if len(current_drives) > len(self.last_usb_list):
+            self.handle_usb_logic(simulated=False, drive_letter=current_drives[-1])
+        
+        self.last_usb_list = current_drives
+
+    def phase_1_infiltration(self):
+        if random.random() < 0.05:
+            self.sensor.trigger_mouse_chaos()
+        
+        if random.random() < 0.02:
+            self.system.toggle_caps_lock()
+
+        if random.random() < 0.01: 
+            self.transition_to_phase_2()
+
+    def transition_to_phase_2(self):
+        self.phase = 2
+        self.display.show_ghost_message("SENİ GÖRÜYORUM.", duration=4000, color="red")
+        self.audio.play("drone")
+        self.system.create_ghost_file("O_BURADA.txt", "Artık çok geç.")
+        
+        face = self.sensor.get_scary_face()
+        if face:
+            path = os.path.abspath("cache_face.png")
+            face.save(path)
+            self.system.register_temp_file(path)
+            self.system.change_wallpaper(path)
+
+    def phase_2_manifestation(self):
+        if random.random() < 0.1:
+             def async_gen():
+                msg = self.mind.generate_idle_threat()
+                self.message_queue.put(("SHOW_MSG", (msg, {"duration": 2000})))
+             threading.Thread(target=async_gen, daemon=True).start()
+
+        if random.random() < 0.05:
+            self.transition_to_phase_3()
+
+    def transition_to_phase_3(self):
+        self.phase = 3
+        self.system.create_ghost_file("RITUEL_KILAVUZU.txt", "1. Işıkları söndür.\n2. USB Bellek hazırla.\n3. Beni içinden söküp at.")
+        self.display.show_ghost_message("RİTÜEL BAŞLADI.", font_size=30)
+
+    def phase_3_ritual(self):
+        if not self.darkness_compliant:
+            if random.random() < 0.1:
+                def async_gen():
+                    msg = self.mind.generate_darkness_demand()
+                    self.message_queue.put(("SHOW_MSG", (msg, {"color": "white"})))
+                threading.Thread(target=async_gen, daemon=True).start()
+                self.system.toggle_caps_lock()
+            return 
+
+    def handle_usb_logic(self, simulated=False, drive_letter="E:\\"):
+        if self.phase != 3: return
+        
+        self.usb_stage += 1
+        
+        def async_gen(stage):
+            reaction = self.mind.generate_usb_reaction(stage)
+            self.message_queue.put(("SHOW_MSG", (reaction, {"duration": 4000, "font_size": 25})))
+            self.message_queue.put(("PLAY_SOUND", "error"))
+
+            if stage == 1:
+                if not simulated: self.system.rename_usb_label(drive_letter, "ACITIYOR")
+            elif stage == 2:
+                self.message_queue.put(("PLAY_SOUND", "riser"))
+                if not simulated: self.system.write_blob_to_usb(drive_letter)
+            elif stage >= 3:
+                self.message_queue.put(("PURGE", None))
+        
+        threading.Thread(target=async_gen, args=(self.usb_stage,), daemon=True).start()
+
+    def phase_4_purge(self):
+        self.phase = 4
+        self.display.trigger_flashbang()
+        self.audio.play("screech")
+        
+        self.root.after(2000, self.finish_game)
+
+    def finish_game(self):
+        self.system.create_ghost_file("TESEKKURLER.txt", "Artık özgürüm.")
         self.system.cleanup_system()
         self.root.quit()
 
